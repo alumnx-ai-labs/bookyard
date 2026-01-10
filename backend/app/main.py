@@ -1,13 +1,21 @@
 """
-FastAPI application with health check endpoint.
+FastAPI application with health check endpoint and Book CRUD APIs.
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
+
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+
+# Ensure app module is importable
+app_dir = Path(__file__).parent
+sys.path.insert(0, str(app_dir.parent))
+
+from app.models import HealthResponse, Message
+from app.controllers.books_controller import router as books_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,18 +49,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-
-# Models
-class HealthResponse(BaseModel):
-    """Health check response model."""
-    status: str
-    timestamp: datetime
-    version: str
-
-
-class Message(BaseModel):
-    """Generic message response model."""
-    message: str
+# Include routers
+app.include_router(books_router)
 
 
 # Routes
@@ -81,7 +79,7 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True
