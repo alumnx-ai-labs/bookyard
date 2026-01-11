@@ -1,86 +1,78 @@
 """
-FastAPI application with health check endpoint and Book CRUD APIs.
+Bookyard API - Main application entry point.
 """
 
 import logging
-import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-# Ensure app module is importable
-app_dir = Path(__file__).parent
-sys.path.insert(0, str(app_dir.parent))
-
-from app.models import HealthResponse, Message
-from app.controllers.books_controller import router as books_router
+from app.api.v1.api import api_router
+from app.core.config import settings
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 
-# Lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Handle application startup and shutdown events.
-    
-    Yields:
-        None
-    """
-    # Startup
-    logger.info("Application startup")
-    logger.info("Bookyard API is running")
-    
+    """Handle application startup and shutdown."""
+    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
     yield
-    
-    # Shutdown
-    logger.info("Application shutdown")
+    logger.info("Shutting down application")
 
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Bookyard API",
-    description="FastAPI application for Bookyard",
-    version="0.1.0",
+    title=settings.PROJECT_NAME,
+    description=settings.DESCRIPTION,
+    version=settings.VERSION,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url=f"{settings.API_V1_STR}/docs",
+    redoc_url=f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan
 )
 
-# Include routers
-app.include_router(books_router)
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include API router
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
-# Routes
-@app.get("/", response_model=Message)
+@app.get("/", tags=["root"])
 async def root():
     """Root endpoint."""
-    return {"message": "Welcome to Bookyard API"}
+    return {
+        "message": f"Welcome to {settings.PROJECT_NAME}",
+        "version": settings.VERSION,
+        "docs": f"{settings.API_V1_STR}/docs"
+    }
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", tags=["health"])
 async def health_check():
-    """
-    Health check endpoint.
-    
-    Returns:
-        HealthResponse: Status, timestamp, and API version
-    """
-    logger.info("Health check endpoint called")
+    """Health check endpoint."""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow(),
-        "version": "0.1.0"
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": settings.VERSION
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
