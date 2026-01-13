@@ -1,0 +1,26 @@
+# FastAPI and server
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Database
+sqlmodel==0.0.22
+psycopg2-binary==2.9.9
+
+# Settings management
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Testing (optional)
+pytest==8.3.3
+httpx==0.27.2
+```
+
+## Files You Can Delete
+
+Since we removed authentication, you can **delete** these files:
+```
+❌ app/core/auth.py
+❌ app/core/security.py

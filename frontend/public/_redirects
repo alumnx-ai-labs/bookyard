@@ -1,0 +1,6 @@
+# Netlify Redirects logic
+# Proxy API requests to backend
+/api/*  https://book-yard.onrender.com/api/:splat  200!
+
+# SPA Fallback
+/*  /index.html  200
