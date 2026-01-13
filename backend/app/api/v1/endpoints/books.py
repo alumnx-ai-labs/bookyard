@@ -5,10 +5,9 @@ from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session
 
-from app.db.session import get_session  # Changed from get_db
-from app.crud.crud_book import crud_book
+from app.db.memory import get_memory_session, books_db, MemoryBook
+from app.api.endpoints.deps import get_user_id_from_token
 from app.schemas.book import BookCreate, BookResponse, BookUpdate
 from app.schemas.common import PaginatedResponse
 
@@ -17,72 +16,134 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/", response_model=PaginatedResponse[BookResponse])
+@router.get("", response_model=PaginatedResponse[BookResponse])
 def list_books(
-    db: Session = Depends(get_session),  # Changed
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     search: Optional[str] = Query(None, description="Search by title or author")
 ):
     """List all books with pagination and search."""
-    books = crud_book.get_multi_with_filters(db, skip=skip, limit=limit, search=search)
-    total = crud_book.count_with_filters(db, search=search)
+    books = [BookResponse(
+        id=book.id,
+        title=book.title,
+        author=book.author,
+        isbn=book.isbn,
+        description=book.description,
+        published_year=book.published_year,
+        pages=book.pages,
+        owner_id=book.owner_id,
+        is_active=book.is_active,
+        created_at=book.created_at,
+        updated_at=book.updated_at
+    ) for book in books_db[skip:skip+limit]]
     
-    return {"items": books, "total": total, "skip": skip, "limit": limit}
+    return {"items": books, "total": len(books_db), "skip": skip, "limit": limit}
 
 
 @router.get("/{book_id}", response_model=BookResponse)
-def get_book(book_id: int, db: Session = Depends(get_session)):  # Changed
+def get_book(book_id: int):
     """Get a specific book by ID."""
-    book = crud_book.get(db, book_id)
+    book = next((b for b in books_db if b.id == book_id), None)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    return book
+    
+    return BookResponse(
+        id=book.id,
+        title=book.title,
+        author=book.author,
+        isbn=book.isbn,
+        description=book.description,
+        published_year=book.published_year,
+        pages=book.pages,
+        owner_id=book.owner_id,
+        is_active=book.is_active,
+        created_at=book.created_at,
+        updated_at=book.updated_at
+    )
 
 
-@router.post("/", response_model=BookResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=BookResponse, status_code=status.HTTP_201_CREATED)
 def create_book(
     book_in: BookCreate,
-    db: Session = Depends(get_session)  # Changed
+    current_user_id: str = Depends(get_user_id_from_token)
 ):
     """Create a new book."""
-    # Use a default owner_id for now
-    default_owner_id = "00000000-0000-0000-0000-000000000000"
-    book = crud_book.create(db, obj_in=book_in, owner_id=default_owner_id)
-    logger.info(f"Book created: {book.id} - {book.title}")
-    return book
+    book = MemoryBook(
+        title=book_in.title,
+        author=book_in.author,
+        isbn=book_in.isbn,
+        description=book_in.description,
+        published_year=book_in.published_year,
+        pages=book_in.pages,
+        owner_id=current_user_id
+    )
+    books_db.append(book)
+    
+    logger.info(f"Book created: {book.id} - {book.title} by {current_user_id}")
+    return BookResponse(
+        id=book.id,
+        title=book.title,
+        author=book.author,
+        isbn=book.isbn,
+        description=book.description,
+        published_year=book.published_year,
+        pages=book.pages,
+        owner_id=book.owner_id,
+        is_active=book.is_active,
+        created_at=book.created_at,
+        updated_at=book.updated_at
+    )
 
 
 @router.put("/{book_id}", response_model=BookResponse)
 def update_book(
     book_id: int,
-    book_in: BookUpdate,
-    db: Session = Depends(get_session)  # Changed
+    book_in: BookUpdate
 ):
     """Update a book."""
-    book = crud_book.get(db, book_id)
+    book = next((b for b in books_db if b.id == book_id), None)
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
     
-    # Update timestamp
-    book_in_dict = book_in.model_dump(exclude_unset=True)
-    book_in_dict['updated_at'] = datetime.utcnow()
+    # Update fields
+    if book_in.title is not None:
+        book.title = book_in.title
+    if book_in.author is not None:
+        book.author = book_in.author
+    if book_in.isbn is not None:
+        book.isbn = book_in.isbn
+    if book_in.description is not None:
+        book.description = book_in.description
+    if book_in.published_year is not None:
+        book.published_year = book_in.published_year
+    if book_in.pages is not None:
+        book.pages = book_in.pages
     
-    updated_book = crud_book.update(db, db_obj=book, obj_in=book_in_dict)
+    book.updated_at = datetime.utcnow()
+    
     logger.info(f"Book updated: {book_id}")
-    return updated_book
+    return BookResponse(
+        id=book.id,
+        title=book.title,
+        author=book.author,
+        isbn=book.isbn,
+        description=book.description,
+        published_year=book.published_year,
+        pages=book.pages,
+        owner_id=book.owner_id,
+        is_active=book.is_active,
+        created_at=book.created_at,
+        updated_at=book.updated_at
+    )
 
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_book(
-    book_id: int,
-    db: Session = Depends(get_session)  # Changed
-):
+def delete_book(book_id: int):
     """Delete a book."""
-    book = crud_book.get(db, book_id)
-    if not book:
+    book_index = next((i for i, b in enumerate(books_db) if b.id == book_id), None)
+    if book_index is None:
         raise HTTPException(status_code=404, detail="Book not found")
     
-    crud_book.delete(db, id=book_id)
+    books_db.pop(book_index)
     logger.info(f"Book deleted: {book_id}")
     return None

@@ -7,12 +7,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://book-yard.onrender.com',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },
       '/health': {
-        target: 'https://book-yard.onrender.com',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       }
