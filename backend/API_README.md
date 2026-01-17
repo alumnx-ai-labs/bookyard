@@ -167,5 +167,4 @@ async def process_data(request: MyRequest) -> MyResponse:
 - **python-dotenv** - Environment variable management
 
 ## License
-
 MIT
