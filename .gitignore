@@ -22,14 +22,25 @@ wheels/
 *.egg
 MANIFEST
 
+# === Node & Frontend ===
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# === Docker ===
+.docker/
+
 # === Environment & Secrets ===
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
 backend/.env
-frontend/.env.local
+frontend/.env
 
 # === Virtual Environments ===
 venv/
@@ -67,12 +78,9 @@ coverage.xml
 Thumbs.db
 desktop.ini
 
-# === Project Specific Documentation ===
-# Keep PDFs as they are part of the project specification
-# !Bookyard_API_Documentation.pdf
-# !Project proposal.pdf
+# === Supabase ===
+# Ignore migration dumps if they are temp, but usually we keep them.
+# backend/supabase/migrations/ 
 
-# === Supabase Migrations ===
-backend/supabase/migrations/
-venv/*
-*.pyc
+# === Logs ===
+*.log
