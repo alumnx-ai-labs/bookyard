@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme transition for smooth color changes */
+* {
+    transition-property: background-color, border-color, color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+/* Disable transition on initial load to prevent flash */
+.no-transitions * {
+    transition: none !important;
+}
+
+/* Custom scrollbar for dark mode */
+.dark ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.dark ::-webkit-scrollbar-track {
+    background: #1e293b;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 5px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
+
+/* Focus ring styles */
+@layer utilities {
+    .focus-ring {
+        @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800;
+    }
+}
