@@ -87,7 +87,6 @@ async def update_book(
     for key, value in update_data.items():
         setattr(book, key, value)
         
-    from datetime import datetime
     book.updated_at = datetime.utcnow()
 
     session.add(book)
