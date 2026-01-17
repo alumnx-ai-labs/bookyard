@@ -1,8 +1,8 @@
 // src/pages/BooksList.jsx
 import React, { useState, useEffect } from 'react';
-import { booksAPI } from '../services/api';
+import { booksAPI, reviewsAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { BookOpen, Search, Plus, Edit, Trash2, Eye, X, Book, Calendar, Layers, Hash, User } from 'lucide-react';
+import { BookOpen, Search, Plus, Edit, Trash2, Eye, X, Book, Calendar, Layers, Hash, User, Star, MessageSquare, Send } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const BooksList = () => {
@@ -13,6 +13,57 @@ const BooksList = () => {
   const [skip, setSkip] = useState(0);
   const [limit] = useState(12); // Increased limit for grid view
   const [selectedBook, setSelectedBook] = useState(null);
+
+  // Reviews State
+  const [reviews, setReviews] = useState([]);
+  const [reviewStats, setReviewStats] = useState({ average_rating: 0, review_count: 0 });
+  const [userRating, setUserRating] = useState(5);
+  const [userReviewText, setUserReviewText] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (selectedBook) {
+      fetchReviews(selectedBook.id);
+    }
+  }, [selectedBook]);
+
+  const fetchReviews = async (bookId) => {
+    try {
+      const [stats, reviewsList] = await Promise.all([
+        reviewsAPI.getStats(bookId),
+        reviewsAPI.list(bookId)
+      ]);
+      setReviewStats(stats);
+      setReviews(reviewsList.items || []); // API returns paginated response
+    } catch (error) {
+      console.error('Failed to fetch reviews:', error);
+    }
+  };
+
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedBook) return;
+
+    setReviewSubmitting(true);
+    try {
+      await reviewsAPI.create({
+        book_id: selectedBook.id,
+        rating: userRating,
+        text: userReviewText
+      });
+
+      // Reset form and refresh
+      setUserReviewText('');
+      setUserRating(5);
+      fetchReviews(selectedBook.id);
+
+    } catch (error) {
+      console.error('Review submission failed:', error);
+      alert(error.response?.data?.detail || 'Failed to submit review. You may have already reviewed this book.');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     fetchBooks();
@@ -365,6 +416,95 @@ const BooksList = () => {
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Reviews Section */}
+              <div className="border-t border-gray-100 pt-8 mb-8">
+                <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-blue-600" />
+                  Reviews & Ratings
+                </h3>
+
+                {/* Stats */}
+                <div className="flex items-center gap-8 mb-8 bg-gray-50 p-6 rounded-2xl">
+                  <div className="text-center">
+                    <div className="text-4xl font-bold text-gray-900 mb-1">{reviewStats.average_rating.toFixed(1)}</div>
+                    <div className="flex gap-1 justify-center mb-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          className={`w-4 h-4 ${star <= Math.round(reviewStats.average_rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                        />
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-500">{reviewStats.review_count} reviews</div>
+                  </div>
+                  <div className="h-12 w-px bg-gray-200"></div>
+                  <div className="flex-1">
+                    {/* Add Review Form */}
+                    <form onSubmit={handleReviewSubmit} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">Rate this book</label>
+                        <div className="flex gap-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setUserRating(star)}
+                              className="focus:outline-none transition-transform hover:scale-110"
+                            >
+                              <Star
+                                className={`w-6 h-6 ${star <= userRating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={userReviewText}
+                          onChange={(e) => setUserReviewText(e.target.value)}
+                          placeholder="Write a review..."
+                          className="flex-1 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all"
+                        />
+                        <button
+                          type="submit"
+                          disabled={reviewSubmitting}
+                          className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        >
+                          <Send className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+
+                {/* Review List */}
+                <div className="space-y-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                  {reviews.length === 0 ? (
+                    <p className="text-center text-gray-500 text-sm py-4">No reviews yet. Be the first to review!</p>
+                  ) : (
+                    reviews.map((review) => (
+                      <div key={review.id} className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`w-3 h-3 ${star <= review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-xs text-gray-400">{formatDate(review.created_at)}</span>
+                        </div>
+                        {review.text && (
+                          <p className="text-gray-700 text-sm leading-relaxed">{review.text}</p>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 

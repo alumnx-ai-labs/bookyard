@@ -22,6 +22,30 @@ apiClient.interceptors.response.use(
     }
 );
 
+// Request interceptor to add auth token
+apiClient.interceptors.request.use(
+    (config) => {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                if (user.token) {
+                    config.headers.Authorization = `Bearer ${user.token}`;
+                    console.log('Token added:', user.token); // Debug log
+                }
+            } catch (e) {
+                console.error('Error parsing user token:', e);
+            }
+        } else {
+            console.log('No user token found'); // Debug log
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
 // Helper to get current user ID/Email safely
 const getCurrentUserEmail = () => {
     try {
@@ -45,7 +69,7 @@ const getBookOwners = () => {
 export const booksAPI = {
     // Create a new book
     create: async (bookData) => {
-        const response = await apiClient.post('/api/books', bookData);
+        const response = await apiClient.post('/api/v1/books', bookData);
         const newBook = response.data;
 
         // Save ownership
@@ -64,24 +88,25 @@ export const booksAPI = {
 
     // List all books with pagination
     list: async (skip = 0, limit = 10) => {
-        const response = await apiClient.get('/api/books', {
+        const response = await apiClient.get('/api/v1/books', {
             params: { skip, limit }
         });
 
+        // Return the items array from paginated response
+        const books = response.data.items || response.data;
+        
         // Attach ownership info
         const owners = getBookOwners();
-        const books = response.data.map(book => ({
+        return books.map(book => ({
             ...book,
-            addedBy: owners[book.id]?.name || 'Admin', // Default to Admin for old books
+            addedBy: owners[book.id]?.name || 'Admin',
             ownerEmail: owners[book.id]?.email,
         }));
-
-        return books;
     },
 
     // Get book by ID
     getById: async (bookId) => {
-        const response = await apiClient.get(`/api/books/${bookId}`);
+        const response = await apiClient.get(`/api/v1/books/${bookId}`);
         const owners = getBookOwners();
         return {
             ...response.data,
@@ -103,7 +128,7 @@ export const booksAPI = {
             throw new Error('Unauthorized: You can only edit books you added.');
         }
 
-        const response = await apiClient.put(`/api/books/${bookId}`, bookData);
+        const response = await apiClient.put(`/api/v1/books/${bookId}`, bookData);
         return response.data;
     },
 
@@ -118,7 +143,7 @@ export const booksAPI = {
             throw new Error('Unauthorized: You can only delete books you added.');
         }
 
-        const response = await apiClient.delete(`/api/books/${bookId}`);
+        const response = await apiClient.delete(`/api/v1/books/${bookId}`);
 
         // Cleanup ownership
         if (owners[bookId]) {
@@ -131,28 +156,56 @@ export const booksAPI = {
 
     // Search books (client-side filtering since API doesn't have search endpoint)
     search: async (query, skip = 0, limit = 100) => {
-        const response = await apiClient.get('/api/books', {
+        const response = await apiClient.get('/api/v1/books', {
             params: { skip, limit }
         });
 
+        // Get items from paginated response
+        const allBooks = response.data.items || response.data;
+        
         // Attach ownership info first
         const owners = getBookOwners();
-        const allBooks = response.data.map(book => ({
+        const booksWithOwners = allBooks.map(book => ({
             ...book,
             addedBy: owners[book.id]?.name || 'Admin',
             ownerEmail: owners[book.id]?.email,
         }));
 
-        if (!query) return allBooks;
+        if (!query) return booksWithOwners;
 
         // Client-side filtering
-        const filtered = allBooks.filter(book =>
+        const filtered = booksWithOwners.filter(book =>
             book.title.toLowerCase().includes(query.toLowerCase()) ||
             book.author.toLowerCase().includes(query.toLowerCase()) ||
             book.isbn?.toLowerCase().includes(query.toLowerCase())
         );
 
         return filtered;
+    }
+};
+
+// Reviews APIs
+export const reviewsAPI = {
+    // Create a review
+    create: async (reviewData) => {
+        const response = await apiClient.post('/api/v1/reviews/', reviewData);
+        return response.data;
+    },
+
+    // List reviews for a book
+    list: async (bookId, skip = 0, limit = 10) => {
+        const response = await apiClient.get('/api/v1/reviews/', {
+            params: { book_id: bookId, skip, limit }
+        });
+        return response.data;
+    },
+
+    // Get review stats
+    getStats: async (bookId) => {
+        const response = await apiClient.get('/api/v1/reviews/stats', {
+            params: { book_id: bookId }
+        });
+        return response.data;
     }
 };
 
