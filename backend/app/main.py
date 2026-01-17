@@ -16,6 +16,9 @@ sys.path.insert(0, str(app_dir.parent))
 
 from app.models import HealthResponse, Message
 from app.controllers.books_controller import router as books_router
+from app.controllers.users_controller import router as users_router
+from app.controllers.data_controller import router as data_router
+from app.database import init_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,12 +30,15 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Handle application startup and shutdown events.
-    
-    Yields:
-        None
     """
     # Startup
     logger.info("Application startup")
+    try:
+        init_db()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        
     logger.info("Bookyard API is running")
     
     yield
@@ -51,6 +57,8 @@ app = FastAPI(
 
 # Include routers
 app.include_router(books_router)
+app.include_router(users_router)
+app.include_router(data_router)
 
 
 # Routes
@@ -64,9 +72,6 @@ async def root():
 async def health_check():
     """
     Health check endpoint.
-    
-    Returns:
-        HealthResponse: Status, timestamp, and API version
     """
     logger.info("Health check endpoint called")
     return {

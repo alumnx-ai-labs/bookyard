@@ -4,10 +4,11 @@ Books API controller with CRUD endpoints.
 
 import logging
 from typing import List
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
+from sqlmodel import Session, select
 
 from app.models import Book, BookCreate, BookUpdate
-from app import database
+from app.database import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -20,53 +21,39 @@ router = APIRouter(
 
 
 @router.post("", response_model=Book, status_code=status.HTTP_201_CREATED)
-async def create_book(book: BookCreate):
+async def create_book(book: BookCreate, session: Session = Depends(get_session)):
     """
     Create a new book.
-    
-    Args:
-        book: BookCreate model with book details
-        
-    Returns:
-        Book: Created book with ID
     """
-    created_book = database.create_book(book)
-    logger.info(f"Book created: {created_book.id} - {book.title}")
-    return created_book
+    db_book = Book.model_validate(book)
+    session.add(db_book)
+    session.commit()
+    session.refresh(db_book)
+    logger.info(f"Book created: {db_book.id} - {db_book.title}")
+    return db_book
 
 
 @router.get("", response_model=List[Book])
-async def list_books(skip: int = 0, limit: int = 10):
+async def list_books(
+    skip: int = 0, 
+    limit: int = 10, 
+    session: Session = Depends(get_session)
+):
     """
     List all books with pagination.
-    
-    Args:
-        skip: Number of books to skip (default: 0)
-        limit: Maximum number of books to return (default: 10)
-        
-    Returns:
-        List[Book]: List of books
     """
     logger.info(f"Fetching books - skip: {skip}, limit: {limit}")
-    books = database.get_all_books(skip=skip, limit=limit)
+    statement = select(Book).offset(skip).limit(limit)
+    books = session.exec(statement).all()
     return books
 
 
 @router.get("/{book_id}", response_model=Book)
-async def get_book(book_id: int):
+async def get_book(book_id: int, session: Session = Depends(get_session)):
     """
     Get a specific book by ID.
-    
-    Args:
-        book_id: ID of the book
-        
-    Returns:
-        Book: Book details
-        
-    Raises:
-        HTTPException: 404 if book not found
     """
-    book = database.get_book_by_id(book_id)
+    book = session.get(Book, book_id)
     
     if not book:
         logger.warning(f"Book not found: {book_id}")
@@ -79,52 +66,54 @@ async def get_book(book_id: int):
 
 
 @router.put("/{book_id}", response_model=Book)
-async def update_book(book_id: int, book_update: BookUpdate):
+async def update_book(
+    book_id: int, 
+    book_update: BookUpdate, 
+    session: Session = Depends(get_session)
+):
     """
     Update a specific book.
-    
-    Args:
-        book_id: ID of the book
-        book_update: Fields to update
-        
-    Returns:
-        Book: Updated book details
-        
-    Raises:
-        HTTPException: 404 if book not found
     """
-    updated_book = database.update_book(book_id, book_update)
+    book = session.get(Book, book_id)
     
-    if not updated_book:
+    if not book:
         logger.warning(f"Book not found for update: {book_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Book with id {book_id} not found"
         )
     
+    update_data = book_update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(book, key, value)
+        
+    from datetime import datetime
+    book.updated_at = datetime.utcnow()
+
+    session.add(book)
+    session.commit()
+    session.refresh(book)
+    
     logger.info(f"Book updated: {book_id}")
-    return updated_book
+    return book
 
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_book(book_id: int):
+async def delete_book(book_id: int, session: Session = Depends(get_session)):
     """
     Delete a specific book.
-    
-    Args:
-        book_id: ID of the book
-        
-    Raises:
-        HTTPException: 404 if book not found
     """
-    deleted = database.delete_book(book_id)
+    book = session.get(Book, book_id)
     
-    if not deleted:
+    if not book:
         logger.warning(f"Book not found for deletion: {book_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Book with id {book_id} not found"
         )
+    
+    session.delete(book)
+    session.commit()
     
     logger.info(f"Book deleted: {book_id}")
     return None
