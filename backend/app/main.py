@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api import api_router
 from app.core.config import settings
+from app.db.session import init_db
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,14 @@ async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
+    
+    # Startup: Initialize Database
+    try:
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        
     yield
     logger.info("Shutting down application")
 
@@ -66,6 +75,7 @@ async def root():
 @app.get("/health", tags=["health"])
 async def health_check():
     """Health check endpoint."""
+    logger.info("Health check endpoint called")
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
