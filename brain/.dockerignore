@@ -8,3 +8,4 @@ ENV/
 .git/
 .gitignore
 .dockerignore
+*.pem
