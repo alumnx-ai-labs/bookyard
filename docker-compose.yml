@@ -1,36 +1,15 @@
 version: '3.8'
 
 services:
-  backend:
+  brain:
     build:
-      context: ./backend
-    container_name: bookyard-backend
+      context: ./brain
+    container_name: bookyard-brain
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
-      # Exclude venv/pycache to avoid conflicts
-      - /app/__pycache__
     env_file:
-      - ./backend/.env
-    # Reload for development
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    restart: always
-
-  frontend:
-    build:
-      context: ./frontend
-      # Target 'builder' stage for dev if we want just node access, 
-      # BUT 'npm run dev' needs node environment, not nginx.
-      # We override the entrypoint/command for DEV to use vite server.
-    container_name: bookyard-frontend
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    env_file:
-      - ./frontend/.env
-    # Run dev server accessible externally
-    command: npm run dev -- --host
+      - ./brain/.env
+    # For production, we don't need volumes for hot-reload, but keeping it simple for now.
+    # In EC2, we usually run without --reload and without volumes.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     restart: always
