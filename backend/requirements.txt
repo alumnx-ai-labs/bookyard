@@ -28,7 +28,7 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 
 # API Documentation
-swagger-ui-bundle==1.0.2
+swagger-ui-bundle>=1.1.0
 
 # HTTP & Network
 requests==2.31.0
