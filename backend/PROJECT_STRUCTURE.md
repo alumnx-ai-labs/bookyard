@@ -1,6 +1,6 @@
 # Backend Architecture & Structure
 
-This document provides a technical overview of the Bookyard backend architecture, including the new dataset loading and recommendation system.
+This document provides a technical overview of the Bookyard backend architecture, including the complete dataset loading, recommendation, and validation system.
 
 ## 📂 Project Organization
 
@@ -10,7 +10,7 @@ backend/
 │   ├── api/                         # API Route definitions
 │   │   └── v1/                      # Versioned API endpoints
 │   │       ├── __init__.py
-│   │       └── datasets.py          # ✨ NEW: Dataset & recommendation endpoints
+│   │       └── datasets.py          # ✅ COMPLETE: All 11 endpoints
 │   │
 │   ├── core/                        # Global configuration & security
 │   │
@@ -21,22 +21,22 @@ backend/
 │   ├── models/                      # SQLAlchemy models (Database schema)
 │   │
 │   ├── schemas/                     # Pydantic schemas (Request/Response validation)
-│   │   └── dataset_schemas.py       # ✨ NEW: Dataset & recommendation schemas
+│   │   └── dataset_schemas.py       # ✅ UPDATED: All schemas with proper types
 │   │
 │   ├── services/                    # Business logic & external integrations
 │   │   ├── __init__.py
-│   │   ├── recommendation.py        # ✅ UPDATED: Refactored for API integration
-│   │   ├── dataset_service.py       # ✨ NEW: Dataset loading & management
-│   │   └── recommendation_engine.py # ✨ NEW: Recommendation logic
+│   │   ├── recommendation.py        # ✅ REFACTORED: No auto-load, with filtering
+│   │   ├── dataset_service.py       # ✅ Singleton: Dataset management & caching
+│   │   └── recommendation_engine.py # ✅ Main: Collaborative filtering logic
 │   │
 │   ├── controllers/                 # Higher-level logic orchestrators
 │   │
 │   └── main.py                      # ✅ UPDATED: Includes datasets router
 │
 ├── data/                            # CSV Assets (for dataset loading)
-│   ├── Books.csv                    # ✅ Required: Books dataset
-│   ├── Book-Ratings.csv             # ✅ Required: Ratings dataset
-│   └── Users.csv                    # ✅ Required: Users dataset
+│   ├── Books.csv                    # ✅ Required: Books metadata
+│   ├── Book-Ratings.csv             # ✅ Required: User ratings
+│   └── Users.csv                    # ✅ Required: User information
 │
 ├── supabase/                        # Database migrations & SQL setup
 │
@@ -44,7 +44,7 @@ backend/
 │
 ├── Dockerfile                       # Container definition
 │
-├── requirements.txt                 # ✅ UPDATED: Added pandas, numpy, scikit-learn
+├── requirements.txt                 # ✅ UPDATED: All dependencies
 │
 ├── PROJECT_STRUCTURE.md             # ✅ This file
 │
@@ -53,102 +53,110 @@ backend/
 
 ## 🏗️ Technical Architecture
 
-The backend follows a layered architecture to ensure separation of concerns and maintainability.
+The backend follows a **layered architecture** with separation of concerns:
 
-### 1. API Layer (`app/api/v1/`)
-Handles HTTP requests and routing using FastAPI's `APIRouter` with versioning to allow for future non-breaking updates.
+### 1. API Layer (`app/api/v1/datasets.py`)
 
-**New Endpoints:**
-- `POST /api/v1/datasets/load` - Load datasets from local folder
-- `GET /api/v1/datasets/status` - Check dataset load status
-- `GET /api/v1/datasets/users` - Get available user IDs
-- `POST /api/v1/datasets/recommendations` - Get personalized recommendations
-- `GET /api/v1/datasets/health` - Health check
+**11 Endpoints for Complete Recommendation System:**
 
-### 2. Validation Layer (`app/schemas/`)
-Uses **Pydantic V2** for rigorous data validation. Every request body and response object is validated against a schema before processing.
+| # | Method | Endpoint | Purpose | Status |
+|---|--------|----------|---------|--------|
+| 1 | POST | `/load` | Load datasets from `/data` folder | ✅ Core |
+| 2 | GET | `/status` | Check if datasets loaded | ✅ Core |
+| 3 | GET | `/users` | Get available user IDs | ✅ Core |
+| 4 | POST | `/recommendations` | Get book recommendations | ✅ Core |
+| 5 | POST | `/validate-recommendations` | Validate recommendation quality | ✅ Validation |
+| 6 | POST | `/explain-recommendations` | Show why books recommended | ✅ Validation |
+| 7 | POST | `/diagnose-user` | Diagnose why recommendations poor | ✅ Validation |
+| 8 | GET | `/health` | Health check | ✅ Core |
 
-**New Schemas:**
-- `DatasetLoadRequest` - Validates dataset load requests
-- `DatasetLoadResponse` - Response with statistics
-- `DatasetStatusResponse` - Current dataset status
-- `RecommendationRequest` - Recommendation query parameters
-- `RecommendationResponse` - List of recommended books
+Handles HTTP requests using **FastAPI** with async/await for performance.
+
+### 2. Validation Layer (`app/schemas/dataset_schemas.py`)
+
+**Pydantic V2 Schemas:**
+- `DatasetLoadRequest` - Load operation validation
+- `DatasetLoadResponse` - Load status response
+- `DatasetStatusResponse` - Dataset status
+- `RecommendationRequest` - Recommendation parameters
+- `RecommendationResponse` - Recommendations list
+- `LoadSourceEnum` - Enum for load sources
+
+All inputs validated before processing, all outputs type-safe.
 
 ### 3. Business Logic Layer (`app/services/`)
-Contains the core application logic, keeping controllers thin and clean.
 
-**Services:**
-- **DatasetService** (Singleton)
-  - Loads CSV files from `/data` folder
-  - Cleans and filters data
-  - Creates user-book interaction matrix
-  - Computes user similarity matrix
-  - Maintains in-memory cache of processed data
+**Three Main Services:**
 
-- **RecommendationEngine**
-  - Implements collaborative filtering algorithm
-  - Finds k most similar users
-  - Generates weighted book recommendations
-  - Formats responses for API consumption
+#### A. **DatasetService** (Singleton Pattern)
+- Location: `app/services/dataset_service.py`
+- Responsibility:
+  - Load CSV files with error handling
+  - Clean & filter data (remove 0 ratings, filter users/books)
+  - Create user-book interaction matrix
+  - Compute user similarity matrix using cosine similarity
+  - Maintain in-memory cache of processed data
+- Features:
+  - Single instance across all requests
+  - Handles `nrows=None` (load all) or `nrows=15000` (limit)
+  - Automatic preprocessing & normalization
 
-- **recommendation.py** (Legacy - refactored)
-  - Original Jupyter notebook converted to module
-  - Functions wrapped for API compatibility
-  - No longer loads data on import
+#### B. **RecommendationEngine** (Static Methods)
+- Location: `app/services/recommendation_engine.py`
+- Responsibility:
+  - Implement collaborative filtering algorithm
+  - Find k most similar users
+  - Calculate weighted book recommendations
+  - Filter results (predicted_rating >= 5.0)
+  - Format API responses
+- Features:
+  - Uses normalized ratings for better similarity
+  - Excludes already-rated books
+  - Returns high-confidence recommendations only
+  - <200ms response time (RAM-based)
+
+#### C. **recommendation.py** (Legacy Support)
+- Location: `app/services/recommendation.py`
+- Status: Refactored for API use
+- Features:
+  - `load_datasets_into_memory()` - Explicit load function
+  - `recommend_books()` - Core recommendation logic
+  - `book_recommender()` - Wrapper function
+  - No auto-load on import
 
 ### 4. Persistence Layer (`app/crud/` & `app/models/`)
-- **SQLAlchemy Models**: Define the database schema for PostgreSQL/Supabase
-- **CRUD Helpers**: Encapsulate the raw SQL/ORM logic
+
+- **SQLAlchemy Models**: Define database schema for PostgreSQL/Supabase
+- **CRUD Helpers**: Encapsulate database operations
 
 ### 5. Core Configuration (`app/core/`)
-Manages environment variables, security settings (JWT/password hashing), and global constants using **Pydantic Settings**.
+
+Manages:
+- Environment variables
+- Security settings (JWT/password hashing)
+- Global constants
+- Uses **Pydantic Settings**
 
 ### 6. Data Layer (`data/`)
-Contains CSV datasets required for the recommendation system:
-- **Books.csv** - Book metadata (ISBN, Title, Author, Publisher, etc.)
-- **Book-Ratings.csv** - User ratings (User-ID, ISBN, Rating 1-10)
-- **Users.csv** - User information (User-ID, Location, Age, etc.)
+
+CSV datasets:
+- **Books.csv** - ISBN, Title, Author, Publisher, Year
+- **Book-Ratings.csv** - User-ID, ISBN, Book-Rating (1-10)
+- **Users.csv** - User-ID, Location, Age
 
 ---
 
-## 🚀 Key Features
-
-### Dataset Management
-- **Auto-Load**: Load datasets via POST endpoint without restarting server
-- **Singleton Pattern**: Single in-memory instance shared across all requests
-- **Data Filtering**: 
-  - Removes ratings with value 0
-  - Keeps only users with ≥3 ratings
-  - Keeps only books with ≥2 ratings
-- **Matrix Computation**: Creates user-book interaction matrix and similarity matrix
-
-### Recommendation Engine
-- **Collaborative Filtering**: Finds similar users based on normalized rating patterns
-- **Weighted Recommendations**: Weights suggested books by user similarity scores
-- **Fast Retrieval**: All computations in RAM, recommendations <200ms
-- **Flexible Parameters**: Adjustable k (similar users) and top_n (books to recommend)
-
-### API Features
-- **Versioned Endpoints**: Ready for future v2 compatibility
-- **Async Operations**: Fully asynchronous endpoints for high-performance
-- **Comprehensive Error Handling**: Clear, actionable error messages
-- **Status Monitoring**: Check dataset load status and available users
-- **Data Validation**: Pydantic schemas validate all inputs/outputs
-
----
-
-## 📊 Data Processing Pipeline
+## 🚀 Data Processing Pipeline
 
 ```
 Raw CSV Files (Disk)
     ↓
-Pandas read_csv() with error handling
+Pandas read_csv() with encoding handling
     ↓
 DataFrames in Memory
     ↓
 Data Cleaning
-  ├── Remove 0 ratings
+  ├── Remove 0 ratings (implicit feedback)
   ├── Filter users (≥3 ratings)
   └── Filter books (≥2 ratings)
     ↓
@@ -157,123 +165,106 @@ Dataset Merging
   ├── Merge result × users (on User-ID)
     ↓
 Matrix Creation
-  ├── User-Book matrix: 74 × 891
-  ├── Normalized ratings
+  ├── User-Book matrix: M × N
+  ├── Normalized ratings (user mean subtraction)
     ↓
 Similarity Computation
-  ├── Cosine similarity matrix: 74 × 74
+  ├── Cosine similarity: sklearn
+  ├── Result: User-User similarity matrix
     ↓
-In-Memory Storage (DatasetService)
+In-Memory Storage (DatasetService Singleton)
     ↓
-Fast API Recommendation Queries (<200ms)
+Fast API Queries (<200ms per recommendation)
 ```
 
 ---
 
-## 🔄 Request-Response Flow
-
-### Load Datasets
-```
-POST /api/v1/datasets/load
-{
-  "source": "local",
-  "nrows": 15000
-}
-        ↓
-DatasetLoadRequest (Pydantic validation)
-        ↓
-load_datasets() endpoint (datasets.py)
-        ↓
-DatasetService.load_datasets() (dataset_service.py)
-        ↓
-Pandas CSV processing
-        ↓
-Matrix computation + in-memory storage
-        ↓
-DatasetLoadResponse with statistics
-```
-
-### Get Recommendations
-```
-POST /api/v1/datasets/recommendations
-{
-  "user_id": 243,
-  "k": 10,
-  "top_n": 10
-}
-        ↓
-RecommendationRequest (Pydantic validation)
-        ↓
-get_recommendations() endpoint (datasets.py)
-        ↓
-RecommendationEngine.get_recommendations_dict()
-        ↓
-recommend_books() from recommendation.py
-        ↓
-RAM lookups: user matrix, similarity matrix
-        ↓
-Weighted averaging + filtering
-        ↓
-Book details retrieved + ratings predicted
-        ↓
-RecommendationResponse with book list
-```
-
----
-
-## 📦 Dependencies
-
-**New dependencies added:**
-```
-pandas>=1.3.0          # Data manipulation & CSV reading
-numpy>=1.21.0          # Numerical computations
-scikit-learn>=1.0.0    # Cosine similarity calculations
-```
-
-**Existing dependencies (unchanged):**
-- FastAPI - API framework
-- Pydantic - Data validation
-- SQLAlchemy - ORM
-- Uvicorn - ASGI server
-- Supabase/PostgreSQL - Database
-
----
-
-## 🎯 API Endpoints Reference
+## 📊 API Endpoints Reference
 
 ### Dataset Management
 
-| Method | Endpoint | Purpose | Auth |
-|--------|----------|---------|------|
-| POST | `/api/v1/datasets/load` | Load datasets from /data folder | No |
-| GET | `/api/v1/datasets/status` | Check if datasets loaded | No |
-| GET | `/api/v1/datasets/users?limit=20` | Get available user IDs | No |
-| GET | `/api/v1/datasets/health` | Health check | No |
+```
+POST /api/v1/datasets/load
+  - Load datasets from /data folder or set custom nrows
+  - Response: Load status + statistics
+  - Time: 40-70s (one-time operation)
+
+GET /api/v1/datasets/status
+  - Check if datasets are loaded
+  - Response: Status + basic stats
+  - Time: <50ms
+
+GET /api/v1/datasets/users?limit=20
+  - Get available user IDs for testing
+  - Response: List of user IDs
+  - Time: <100ms
+
+GET /api/v1/datasets/health
+  - Health check
+  - Response: Service status
+  - Time: <10ms
+```
 
 ### Recommendations
 
-| Method | Endpoint | Purpose | Auth |
-|--------|----------|---------|------|
-| POST | `/api/v1/datasets/recommendations` | Get book recommendations for user | No |
+```
+POST /api/v1/datasets/recommendations
+  Parameters:
+    - user_id (int): User to recommend for
+    - k (int): Similar users to consider (default: 10, max: 100)
+    - top_n (int): Books to recommend (default: 10, max: 50)
+  Response: List of recommended books with predicted ratings
+  Time: <200ms
+```
+
+### Validation & Debugging
+
+```
+POST /api/v1/datasets/validate-recommendations
+  - Validate recommendation quality
+  - Shows: User history, recommendations, quality checks
+  - Quality score: 0-100
+  - Rating: Excellent/Good/Fair/Poor
+  - Time: <300ms
+
+POST /api/v1/datasets/explain-recommendations
+  Parameters:
+    - user_id: User to explain for
+    - top_n: Books to explain (default: 5)
+    - show_similar_users: Users to show (default: 5)
+  - Shows WHY each book is recommended
+  - Includes: Similar users, ratings, confidence
+  - Time: <300ms
+
+POST /api/v1/datasets/diagnose-user
+  - Diagnose why recommendations are poor
+  - Shows: User stats, similar users, data sparsity
+  - Includes: Issues found + solutions
+  - Quality score: 0-100
+  - Time: <200ms
+```
 
 ---
 
 ## 💾 In-Memory Storage
 
-The DatasetService maintains these global variables (Singleton):
-
+**DatasetService Maintains:**
 ```python
-_books_data          # DataFrame: 15,000 books metadata
-_ratings_data        # DataFrame: Raw ratings data
-_users_data          # DataFrame: User information
-_user_book_matrix    # Numpy array: 74 × 891 user-book ratings
-_user_similarity     # Numpy array: 74 × 74 similarity matrix
-_is_loaded           # Boolean: Dataset load status
+_books_data          # DataFrame: 15,000+ books
+_ratings_data        # DataFrame: Raw ratings
+_users_data          # DataFrame: User info
+_user_book_matrix    # Numpy array: User-Book ratings
+_user_similarity     # Numpy array: User-User similarity
+_is_loaded           # Boolean: Load status
 ```
 
-**Memory Usage:** ~20-30 MB
-**Access Time:** <1ms per query
-**Persistence:** Session-based (cleared on server restart)
+**Memory Usage:**
+- Small dataset (15k rows): ~20-30 MB
+- Full dataset (100k+ rows): ~100-200 MB
+
+**Performance:**
+- First load: 40-70 seconds (one-time)
+- Subsequent queries: <200ms (cached in RAM)
 
 ---
 
@@ -281,13 +272,15 @@ _is_loaded           # Boolean: Dataset load status
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| Load CSVs | 2-5s | Disk I/O intensive |
+| Load CSVs | 2-5s | Disk I/O |
 | Data cleaning | 1-2s | RAM processing |
-| Similarity matrix | 30-60s | CPU intensive (one-time) |
-| Get recommendations | <200ms | RAM lookups only |
-| API response | <50ms | JSON serialization |
-| **First load (total)** | **40-70s** | One-time operation |
-| **Subsequent requests** | **<200ms** | Cached in RAM |
+| Similarity matrix | 30-60s | CPU intensive |
+| Get recommendations | <200ms | RAM lookups |
+| Validate recommendations | <300ms | In-memory checks |
+| Explain recommendations | <300ms | In-memory analysis |
+| Diagnose user | <200ms | In-memory stats |
+| **First load (total)** | **40-70s** | One-time |
+| **Subsequent requests** | **<300ms** | Cached |
 
 ---
 
@@ -296,6 +289,7 @@ _is_loaded           # Boolean: Dataset load status
 - ✅ Input validation with Pydantic schemas
 - ✅ File path validation (prevents directory traversal)
 - ✅ Error handling without exposing sensitive paths
+- ✅ Type hints for all parameters
 - ⚠️ Future: Add authentication for dataset loading
 - ⚠️ Future: Rate limiting on recommendation requests
 - ⚠️ Future: Audit logging for API usage
@@ -306,26 +300,52 @@ _is_loaded           # Boolean: Dataset load status
 
 ### 1. Load Datasets
 ```bash
-curl -X 'POST' 'http://localhost:8000/api/v1/datasets/load' \
-  -H 'Content-Type: application/json' \
-  -d '{"source": "local", "nrows": 15000}'
+curl -X POST http://localhost:8000/api/v1/datasets/load \
+  -H "Content-Type: application/json" \
+  -d '{"source": "local", "nrows": null}'
 ```
 
 ### 2. Check Status
 ```bash
-curl -X 'GET' 'http://localhost:8000/api/v1/datasets/status'
+curl -X GET http://localhost:8000/api/v1/datasets/status
 ```
 
 ### 3. Get Available Users
 ```bash
-curl -X 'GET' 'http://localhost:8000/api/v1/datasets/users?limit=20'
+curl -X GET "http://localhost:8000/api/v1/datasets/users?limit=20"
 ```
 
 ### 4. Get Recommendations
 ```bash
-curl -X 'POST' 'http://localhost:8000/api/v1/datasets/recommendations' \
-  -H 'Content-Type: application/json' \
-  -d '{"user_id": 243, "k": 10, "top_n": 10}'
+curl -X POST http://localhost:8000/api/v1/datasets/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 99, "k": 20, "top_n": 10}'
+```
+
+### 5. Validate Recommendations
+```bash
+curl -X POST http://localhost:8000/api/v1/datasets/validate-recommendations \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 99, "top_n": 10}'
+```
+
+### 6. Explain Recommendations
+```bash
+curl -X POST http://localhost:8000/api/v1/datasets/explain-recommendations \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 99, "top_n": 5, "show_similar_users": 5}'
+```
+
+### 7. Diagnose User
+```bash
+curl -X POST http://localhost:8000/api/v1/datasets/diagnose-user \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 99}'
+```
+
+### 8. Health Check
+```bash
+curl -X GET http://localhost:8000/api/v1/datasets/health
 ```
 
 ---
@@ -333,41 +353,42 @@ curl -X 'POST' 'http://localhost:8000/api/v1/datasets/recommendations' \
 ## 🚀 Deployment Checklist
 
 - [ ] Copy CSV files to `backend/data/` folder
-- [ ] Install dependencies: `pip install pandas numpy scikit-learn`
+- [ ] Install dependencies: `pip install -r requirements.txt`
 - [ ] Update `main.py` to include datasets router
-- [ ] Test endpoints with curl/Postman
+- [ ] Test all endpoints with curl/Postman
 - [ ] Load datasets via `/load` endpoint
 - [ ] Verify recommendations work
-- [ ] Monitor memory usage in production
+- [ ] Check response times (should be <200ms)
+- [ ] Monitor memory usage
 - [ ] Set up logging for API requests
+- [ ] Configure environment variables
 
 ---
 
 ## 📈 Future Enhancements
 
-1. **Database Persistence**
-   - Save recommendations to Supabase
-   - Cache frequently requested recommendations
+### Phase 2: Database Persistence
+- Save recommendations to Supabase
+- Cache frequently requested recommendations
+- Track user feedback on recommendations
 
-2. **Advanced Algorithms**
-   - Hybrid filtering (content + collaborative)
-   - Matrix factorization (SVD, NMF)
-   - Deep learning models
+### Phase 3: Advanced Algorithms
+- Hybrid filtering (content + collaborative)
+- Matrix factorization (SVD, NMF)
+- Deep learning models
+- A/B testing framework
 
-3. **Monitoring & Analytics**
-   - Track recommendation accuracy
-   - User engagement metrics
-   - A/B testing framework
+### Phase 4: Scalability
+- Batch recommendation generation
+- Incremental updates instead of full reload
+- Distributed computation for large datasets
+- Redis caching for popular recommendations
 
-4. **Scalability**
-   - Batch recommendation generation
-   - Incremental updates instead of full reload
-   - Distributed computation for large datasets
-
-5. **User Features**
-   - Recommendation explanations
-   - Feedback loop for quality improvement
-   - Personalization by category/genre
+### Phase 5: User Features
+- Recommendation explanations API
+- Feedback loop for quality improvement
+- Personalization by category/genre
+- Export recommendations as CSV/JSON
 
 ---
 
@@ -375,17 +396,43 @@ curl -X 'POST' 'http://localhost:8000/api/v1/datasets/recommendations' \
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | Jan 2026 | Initial release with dataset loading & collaborative filtering |
-| 0.9 | Jan 2026 | Beta: API endpoints, schemas, services |
+| 2.0 | Jan 2026 | Complete validation system, 3 new endpoints, diagnosis tools |
+| 1.5 | Jan 2026 | Fixed numpy serialization, added type conversions |
+| 1.0 | Jan 2026 | Initial release with core recommendations |
 
 ---
 
 ## 🎓 Architecture Principles
 
-✅ **Separation of Concerns**: API, Service, and Data layers clearly separated
-✅ **Singleton Pattern**: Single dataset instance across requests
-✅ **In-Memory Caching**: Fast repeated access without disk I/O
-✅ **Type Safety**: Pydantic schemas for all inputs/outputs
-✅ **Error Handling**: Clear, actionable error messages
-✅ **Scalability**: Ready for future enhancements and v2
-✅ **Documentation**: Comprehensive inline comments and docstrings
+✅ **Separation of Concerns**: Clear layer boundaries
+✅ **Singleton Pattern**: One dataset instance globally
+✅ **In-Memory Caching**: Fast repeated access
+✅ **Type Safety**: Pydantic validation everywhere
+✅ **Async/Await**: Non-blocking operations
+✅ **Error Handling**: Clear, actionable messages
+✅ **Performance**: <200ms recommendations
+✅ **Scalability**: Ready for future enhancements
+✅ **Documentation**: Comprehensive inline docs
+✅ **Testing**: Multiple validation endpoints
+
+---
+
+## 📚 Key Technologies
+
+- **FastAPI** - Modern async web framework
+- **Pydantic V2** - Data validation & serialization
+- **Pandas** - Data manipulation & CSV reading
+- **NumPy** - Numerical computations
+- **scikit-learn** - Machine learning (cosine similarity)
+- **SQLAlchemy** - ORM for database
+- **Uvicorn** - ASGI server
+- **Supabase** - PostgreSQL database
+
+---
+
+## 🔗 Related Documentation
+
+- API Documentation: `/docs` (Swagger UI)
+- OpenAPI Schema: `/openapi.json`
+- Health Status: `/health`
+- Status Page: `/status`

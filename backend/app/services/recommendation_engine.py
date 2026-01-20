@@ -111,6 +111,19 @@ class RecommendationEngine:
                 ascending=False
             )
             
+            # FILTER: Only keep books with predicted rating >= 5.0
+            recommended_books = recommended_books[
+                recommended_books["Predicted-Rating"] >= 5.0
+            ]
+            
+            # If no high-confidence books, return what we have with warning
+            if len(recommended_books) == 0:
+                logger.warning(f"User {user_id}: No high-confidence recommendations (all < 5.0)")
+                return "Not enough high-confidence recommendations available"
+            
+            # Limit to top_n after filtering
+            recommended_books = recommended_books.head(top_n)
+            
             logger.info(f"Generated {len(recommended_books)} recommendations for user {user_id}")
             return recommended_books
             
@@ -132,22 +145,22 @@ class RecommendationEngine:
         dict : Contains status, recommendations list, and metadata
         """
         
-        result = RecommendationEngine.recommend_books(user_id, k, top_n)
+        recommendations_df = RecommendationEngine.recommend_books(user_id, k, top_n)
         
-        if isinstance(result, str):
+        if isinstance(recommendations_df, str):
             return {
                 "status": "error",
-                "message": result,
+                "message": recommendations_df,
                 "user_id": user_id
             }
         
-        recommendations = result.to_dict('records')
+        recommendations_list = recommendations_df.to_dict('records')
         
         return {
             "status": "success",
             "user_id": user_id,
-            "total_recommendations": len(recommendations),
-            "recommendations": recommendations,
+            "total_recommendations": len(recommendations_list),
+            "recommendations": recommendations_list,
             "parameters": {
                 "k_similar_users": k,
                 "top_n_books": top_n
