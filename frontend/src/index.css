@@ -39,3 +39,32 @@
         @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800;
     }
 }
+
+/* Search text highlighting */
+.search-highlight {
+    background-color: rgba(251, 191, 36, 0.35);
+    border-radius: 2px;
+    padding: 0 2px;
+    color: inherit;
+}
+
+.dark .search-highlight {
+    background-color: rgba(251, 191, 36, 0.25);
+}
+
+/* Toast animations */
+@keyframes slide-in {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-slide-in {
+    animation: slide-in 0.3s ease-out forwards;
+}

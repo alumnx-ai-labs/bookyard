@@ -1,22 +1,156 @@
 // src/pages/BooksList.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { booksAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Search, Plus, Edit, Trash2, Eye, X, Book, Calendar, Layers, Hash, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import useDebounce from '../hooks/useDebounce';
+import HighlightText from '../components/HighlightText';
+import SearchSuggestions from '../components/SearchSuggestions';
+import FilterSortPanel from '../components/FilterSortPanel';
+import { useToast } from '../context/ToastContext';
 
 const BooksList = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [books, setBooks] = useState([]);
+  const [allBooks, setAllBooks] = useState([]); // For suggestions and filters
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [skip, setSkip] = useState(0);
   const [limit] = useState(12);
   const [selectedBook, setSelectedBook] = useState(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState({ titles: [], authors: [], isbns: [] });
 
+  // Filter and Sort State
+  const [filters, setFilters] = useState({ author: '', isbn: 'all' });
+  const [sortBy, setSortBy] = useState('default');
+
+  const searchContainerRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const debouncedSearchQuery = useDebounce(searchQuery, 400);
+
+  // Fetch all books initially for suggestions and filters
   useEffect(() => {
-    fetchBooks();
-  }, [skip]);
+    fetchAllBooks();
+  }, []);
+
+  // Trigger search on debounced query change
+  useEffect(() => {
+    if (debouncedSearchQuery) {
+      performSearch(debouncedSearchQuery);
+    } else {
+      fetchBooks();
+    }
+  }, [debouncedSearchQuery, skip]);
+
+  // Generate suggestions when search query changes
+  useEffect(() => {
+    if (searchQuery.trim() && allBooks.length > 0) {
+      generateSuggestions(searchQuery);
+      setShowSuggestions(true);
+    } else {
+      setSuggestions({ titles: [], authors: [], isbns: [] });
+      setShowSuggestions(false);
+    }
+  }, [searchQuery, allBooks]);
+
+  // Click outside handler to close suggestions
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Keyboard shortcut: "/" to focus search input
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // Don't trigger if user is typing in an input, textarea, or contenteditable
+      const target = event.target;
+      const isInputField = target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable;
+
+      if (event.key === '/' && !isInputField) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+
+      // Escape to close suggestions and blur
+      if (event.key === 'Escape' && showSuggestions) {
+        setShowSuggestions(false);
+        searchInputRef.current?.blur();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showSuggestions]);
+
+  // Get unique authors from allBooks
+  const uniqueAuthors = useMemo(() => {
+    const authors = [...new Set(allBooks.map(book => book.author))];
+    return authors.sort((a, b) => a.localeCompare(b));
+  }, [allBooks]);
+
+  // Apply filters and sorting to books
+  const displayedBooks = useMemo(() => {
+    let result = [...books];
+
+    // Apply author filter
+    if (filters.author) {
+      result = result.filter(book => book.author === filters.author);
+    }
+
+    // Apply ISBN filter
+    if (filters.isbn === 'has') {
+      result = result.filter(book => book.isbn && book.isbn.trim() !== '');
+    } else if (filters.isbn === 'none') {
+      result = result.filter(book => !book.isbn || book.isbn.trim() === '');
+    }
+
+    // Apply sorting
+    switch (sortBy) {
+      case 'title-asc':
+        result.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case 'title-desc':
+        result.sort((a, b) => b.title.localeCompare(a.title));
+        break;
+      case 'author-asc':
+        result.sort((a, b) => a.author.localeCompare(b.author));
+        break;
+      case 'pages-asc':
+        result.sort((a, b) => (a.pages || 0) - (b.pages || 0));
+        break;
+      case 'pages-desc':
+        result.sort((a, b) => (b.pages || 0) - (a.pages || 0));
+        break;
+      default:
+        // Keep original order (recently added)
+        break;
+    }
+
+    return result;
+  }, [books, filters, sortBy]);
+
+  // Check if any filters are active
+  const hasActiveFilters = filters.author !== '' || filters.isbn !== 'all' || sortBy !== 'default';
+
+  const fetchAllBooks = async () => {
+    try {
+      const data = await booksAPI.list(0, 500);
+      setAllBooks(data);
+    } catch (error) {
+      console.error('Failed to fetch all books:', error);
+    }
+  };
 
   const fetchBooks = async () => {
     setLoading(true);
@@ -30,24 +164,90 @@ const BooksList = () => {
     }
   };
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
+  const performSearch = async (query) => {
     setLoading(true);
     try {
-      const data = await booksAPI.search(searchQuery);
+      const data = await booksAPI.search(query);
       setBooks(data);
-      setSkip(0);
+
+      // Show toast notification
+      if (data.length === 0) {
+        toast.warning('No results found');
+      } else {
+        toast.success(`Search completed: ${data.length} book${data.length !== 1 ? 's' : ''} found`);
+      }
     } catch (error) {
       console.error('Search failed:', error);
+      toast.error('Search failed. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const generateSuggestions = useCallback((query) => {
+    const lowerQuery = query.toLowerCase();
+
+    const titles = allBooks.filter(book =>
+      book.title.toLowerCase().includes(lowerQuery)
+    );
+
+    const authors = allBooks.filter(book =>
+      book.author.toLowerCase().includes(lowerQuery)
+    );
+
+    const isbns = allBooks.filter(book =>
+      book.isbn?.toLowerCase().includes(lowerQuery)
+    );
+
+    // Remove duplicates by keeping unique suggestions per category
+    const uniqueAuthorsForSuggestions = [];
+    const seenAuthors = new Set();
+    authors.forEach(book => {
+      if (!seenAuthors.has(book.author.toLowerCase())) {
+        seenAuthors.add(book.author.toLowerCase());
+        uniqueAuthorsForSuggestions.push(book);
+      }
+    });
+
+    setSuggestions({
+      titles: titles.slice(0, 5),
+      authors: uniqueAuthorsForSuggestions.slice(0, 5),
+      isbns: isbns.slice(0, 5)
+    });
+  }, [allBooks]);
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    setShowSuggestions(false);
+    if (searchQuery) {
+      performSearch(searchQuery);
+      setSkip(0);
     }
   };
 
   const handleClearSearch = () => {
     setSearchQuery('');
     setSkip(0);
+    setShowSuggestions(false);
     fetchBooks();
+  };
+
+  const handleSuggestionSelect = (value) => {
+    setSearchQuery(value);
+    setShowSuggestions(false);
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleSortChange = (value) => {
+    setSortBy(value);
+  };
+
+  const handleClearFilters = () => {
+    setFilters({ author: '', isbn: 'all' });
+    setSortBy('default');
   };
 
   const handleDelete = async (bookId) => {
@@ -86,6 +286,9 @@ const BooksList = () => {
     return book.ownerEmail && book.ownerEmail === user?.email;
   };
 
+  // Get the active search term for highlighting
+  const activeHighlight = debouncedSearchQuery;
+
   return (
     <div className="font-sans">
 
@@ -97,47 +300,79 @@ const BooksList = () => {
         </div>
         <Link
           to="/books/create"
-          className="group flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 active:bg-blue-800 transition-all duration-300 shadow-md hover:shadow-xl hover:-translate-y-0.5"
+          className="group flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 active:bg-blue-800 transition-all duration-300 shadow-md hover:shadow-xl hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+          aria-label="Add new book"
         >
-          <Plus className="w-4 h-4 transition-transform group-hover:rotate-90" />
+          <Plus className="w-4 h-4 transition-transform group-hover:rotate-90" aria-hidden="true" />
           <span className="font-medium text-sm">Add Book</span>
         </Link>
       </div>
 
       {/* Search Section */}
-      <div className="mb-10 max-w-2xl mx-auto">
-        <div className="relative group">
-          <div className="absolute -inset-1 bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+      <div className="mb-6 max-w-2xl mx-auto">
+        <div className="relative group" ref={searchContainerRef} role="search">
+          <div className="absolute -inset-1 bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000" aria-hidden="true"></div>
           <div className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-xl shadow-gray-100 dark:shadow-slate-900/30 p-2 flex items-center border border-gray-100 dark:border-slate-700">
-            <Search className="w-5 h-5 text-gray-400 dark:text-slate-500 ml-3" />
-            <form onSubmit={handleSearch} className="flex-1 flex items-center">
+            <Search className="w-5 h-5 text-gray-400 dark:text-slate-500 ml-3" aria-hidden="true" />
+            <form onSubmit={handleSearch} className="flex-1 flex items-center" role="search">
+              <label htmlFor="book-search" className="sr-only">Search books by title, author, or ISBN</label>
               <input
+                ref={searchInputRef}
+                id="book-search"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by title, author, or ISBN..."
+                onFocus={() => searchQuery.trim() && setShowSuggestions(true)}
+                placeholder="Search by title, author, or ISBN... (Press / to focus)"
                 className="w-full px-4 py-3 bg-transparent border-none focus:ring-0 text-gray-700 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 text-base outline-none"
+                aria-label="Search books"
+                aria-describedby="search-hint"
+                aria-autocomplete="list"
+                aria-controls={showSuggestions ? 'search-suggestions' : undefined}
+                aria-expanded={showSuggestions}
               />
+              <span id="search-hint" className="sr-only">Press slash to focus search, Escape to close suggestions</span>
               {searchQuery && (
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full transition-colors mr-2"
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full transition-colors mr-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label="Clear search"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               )}
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-gray-900 dark:bg-slate-600 text-white px-6 py-2.5 rounded-xl hover:bg-black dark:hover:bg-slate-500 transition-colors font-medium text-sm disabled:opacity-70"
+                className="bg-gray-900 dark:bg-slate-600 text-white px-6 py-2.5 rounded-xl hover:bg-black dark:hover:bg-slate-500 transition-colors font-medium text-sm disabled:opacity-70 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
+                aria-label={loading ? 'Searching...' : 'Search books'}
               >
                 {loading ? 'Searching...' : 'Search'}
               </button>
             </form>
           </div>
+
+          {/* Search Suggestions Dropdown */}
+          <SearchSuggestions
+            suggestions={suggestions}
+            searchQuery={searchQuery}
+            onSelect={handleSuggestionSelect}
+            isVisible={showSuggestions}
+          />
         </div>
       </div>
+
+      {/* Filter and Sort Panel */}
+      <FilterSortPanel
+        authors={uniqueAuthors}
+        filters={filters}
+        sortBy={sortBy}
+        onFilterChange={handleFilterChange}
+        onSortChange={handleSortChange}
+        onClear={handleClearFilters}
+        hasActiveFilters={hasActiveFilters}
+      />
 
       {/* Content Area */}
       {loading ? (
@@ -150,23 +385,23 @@ const BooksList = () => {
           </div>
           <p className="mt-4 text-gray-500 dark:text-slate-400 font-medium animate-pulse">Fetching your library...</p>
         </div>
-      ) : books.length === 0 ? (
+      ) : displayedBooks.length === 0 ? (
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm dark:shadow-slate-900/20 border border-gray-100 dark:border-slate-700 p-12 text-center max-w-lg mx-auto">
           <div className="bg-blue-50 dark:bg-blue-900/30 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
             <Book className="w-10 h-10 text-blue-500 dark:text-blue-400" />
           </div>
           <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No books found</h3>
           <p className="text-gray-500 dark:text-slate-400 mb-8 leading-relaxed">
-            {searchQuery
-              ? `We couldn't find any books matching "${searchQuery}". Try a different keyword.`
+            {searchQuery || hasActiveFilters
+              ? "No books match your current filters. Try adjusting your search or filters."
               : "Your library is empty. Add your first book to get started!"}
           </p>
-          {searchQuery ? (
+          {(searchQuery || hasActiveFilters) ? (
             <button
-              onClick={handleClearSearch}
+              onClick={() => { handleClearSearch(); handleClearFilters(); }}
               className="text-blue-600 dark:text-blue-400 font-medium hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
             >
-              Clear Filters
+              Clear All Filters
             </button>
           ) : (
             <Link
@@ -184,7 +419,7 @@ const BooksList = () => {
             <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
               All Books
               <span className="bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 py-0.5 px-2.5 rounded-full text-xs font-bold border border-gray-200 dark:border-slate-600">
-                {books.length}
+                {displayedBooks.length}
               </span>
             </h2>
             <div className="text-sm text-gray-500 dark:text-slate-400">
@@ -193,11 +428,17 @@ const BooksList = () => {
           </div>
 
           {/* Grid Layout */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {books.map((book) => (
-              <div
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            role="list"
+            aria-label="Books list"
+          >
+            {displayedBooks.map((book) => (
+              <article
                 key={book.id}
                 className="group bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-xl dark:hover:shadow-slate-900/40 hover:-translate-y-1 transition-all duration-300 flex flex-col overflow-hidden"
+                role="listitem"
+                aria-label={`${book.title} by ${book.author}`}
               >
                 <div className="p-6 flex-1 flex flex-col">
                   <div className="flex justify-between items-start mb-4">
@@ -206,29 +447,31 @@ const BooksList = () => {
                     </div>
                     {/* Action Buttons - Only authorized */}
                     {canManageBook(book) && (
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
                         <Link
                           to={`/books/edit/${book.id}`}
-                          className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-                          title="Edit"
+                          className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:opacity-100"
+                          aria-label={`Edit ${book.title}`}
                         >
-                          <Edit className="w-4 h-4" />
+                          <Edit className="w-4 h-4" aria-hidden="true" />
                         </Link>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDelete(book.id); }}
-                          className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                          title="Delete"
+                          className="p-1.5 text-gray-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:opacity-100"
+                          aria-label={`Delete ${book.title}`}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </div>
                     )}
                   </div>
 
                   <h3 className="font-bold text-gray-900 dark:text-white text-lg leading-tight mb-1 line-clamp-2" title={book.title}>
-                    {book.title}
+                    <HighlightText text={book.title} highlight={activeHighlight} />
                   </h3>
-                  <p className="text-gray-500 dark:text-slate-400 text-sm font-medium mb-4">{book.author}</p>
+                  <p className="text-gray-500 dark:text-slate-400 text-sm font-medium mb-4">
+                    <HighlightText text={book.author} highlight={activeHighlight} />
+                  </p>
 
                   <div className="mt-auto space-y-2">
                     <div className="flex items-center text-xs text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-700/50 p-2 rounded-lg">
@@ -237,7 +480,9 @@ const BooksList = () => {
                     </div>
                     <div className="flex items-center text-xs text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-700/50 p-2 rounded-lg">
                       <Hash className="w-3.5 h-3.5 mr-2 text-gray-400 dark:text-slate-500" />
-                      <span className="font-mono truncate">{book.isbn || 'No ISBN'}</span>
+                      <span className="font-mono truncate">
+                        <HighlightText text={book.isbn || 'No ISBN'} highlight={activeHighlight} />
+                      </span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-gray-500 dark:text-slate-400 px-1">
                       <span className="flex items-center">
@@ -252,11 +497,15 @@ const BooksList = () => {
                   </div>
                 </div>
 
-                <div onClick={() => setSelectedBook(book)} className="bg-gray-50 dark:bg-slate-700/50 px-6 py-3 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                <button
+                  onClick={() => setSelectedBook(book)}
+                  className="bg-gray-50 dark:bg-slate-700/50 px-6 py-3 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors w-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+                  aria-label={`View details for ${book.title}`}
+                >
                   <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">View Details</span>
-                  <Eye className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                </div>
-              </div>
+                  <Eye className="w-4 h-4 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+                </button>
+              </article>
             ))}
           </div>
 
@@ -265,14 +514,16 @@ const BooksList = () => {
             <button
               onClick={handlePrevPage}
               disabled={skip === 0}
-              className="px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 font-medium hover:bg-white dark:hover:bg-slate-800 hover:border-gray-300 dark:hover:border-slate-500 hover:shadow-sm disabled:opacity-50 disabled:hover:shadow-none transition-all"
+              className="px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 font-medium hover:bg-white dark:hover:bg-slate-800 hover:border-gray-300 dark:hover:border-slate-500 hover:shadow-sm disabled:opacity-50 disabled:hover:shadow-none transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+              aria-label="Go to previous page"
             >
               Previous
             </button>
             <button
               onClick={handleNextPage}
               disabled={books.length < limit}
-              className="px-5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 text-gray-800 dark:text-slate-200 font-medium hover:border-gray-300 dark:hover:border-slate-500 hover:shadow-sm disabled:opacity-50 disabled:hover:shadow-none transition-all"
+              className="px-5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 text-gray-800 dark:text-slate-200 font-medium hover:border-gray-300 dark:hover:border-slate-500 hover:shadow-sm disabled:opacity-50 disabled:hover:shadow-none transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+              aria-label="Go to next page"
             >
               Next Page
             </button>

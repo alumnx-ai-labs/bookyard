@@ -1,5 +1,6 @@
 // src/context/ThemeContext.jsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useToast } from './ToastContext';
 
 const ThemeContext = createContext(null);
 
@@ -18,6 +19,9 @@ export const ThemeProvider = ({ children }) => {
         return 'light';
     });
 
+    // Track if this is the initial mount (don't show toast on first load)
+    const [isInitialMount, setIsInitialMount] = useState(true);
+
     useEffect(() => {
         const root = window.document.documentElement;
 
@@ -30,12 +34,17 @@ export const ThemeProvider = ({ children }) => {
         localStorage.setItem('bookyard-theme', theme);
     }, [theme]);
 
-    const toggleTheme = () => {
+    // Mark initial mount as complete after first render
+    useEffect(() => {
+        setIsInitialMount(false);
+    }, []);
+
+    const toggleTheme = useCallback(() => {
         setTheme(prev => prev === 'light' ? 'dark' : 'light');
-    };
+    }, []);
 
     return (
-        <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+        <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, isInitialMount }}>
             {children}
         </ThemeContext.Provider>
     );
@@ -47,4 +56,25 @@ export const useTheme = () => {
         throw new Error('useTheme must be used within a ThemeProvider');
     }
     return context;
+};
+
+/**
+ * Hook to show toast on theme changes
+ * Use this in components that handle theme toggle
+ */
+export const useThemeWithToast = () => {
+    const { theme, setTheme, toggleTheme, isInitialMount } = useTheme();
+    const toast = useToast();
+
+    const toggleThemeWithToast = useCallback(() => {
+        const newTheme = theme === 'light' ? 'dark' : 'light';
+        toggleTheme();
+
+        // Only show toast if not initial mount
+        if (!isInitialMount) {
+            toast.info(`Theme changed to ${newTheme === 'dark' ? 'Dark' : 'Light'} mode`);
+        }
+    }, [theme, toggleTheme, toast, isInitialMount]);
+
+    return { theme, setTheme, toggleTheme: toggleThemeWithToast };
 };
