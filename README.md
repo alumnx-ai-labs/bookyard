@@ -3,6 +3,7 @@
 Welcome to BookYard. This repository contains the source code for the BookYard application.
 
 ## Contributors
+
 - SaiTeja
 - Durgaprasad.K
 - Rahul Pandey
@@ -10,6 +11,7 @@ Welcome to BookYard. This repository contains the source code for the BookYard a
 - Lakshman
 - Vishal
 - Mohammed Ajmal
+- Bhavana R
 
 ---
 
@@ -20,11 +22,13 @@ This template provides a minimal setup to get React working in Vite with HMR and
 ### Getting Started
 
 1.  **Install Dependencies**:
+
     ```bash
     npm install
     ```
 
 2.  **Run Development Server**:
+
     ```bash
     npm run dev
     ```
