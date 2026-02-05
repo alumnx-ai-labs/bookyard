@@ -6,7 +6,11 @@ from app.core.auth import get_current_user
 from app.db.session import get_session
 import uuid
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/books",
+    tags=["Books API's"],
+    responses={404: {"description": "Not found"}}
+)
 
 @router.get("/", response_model=List[Book])
 async def list_books(
